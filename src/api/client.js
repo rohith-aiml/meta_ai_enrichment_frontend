@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 // Base URL pointing to the FastAPI backend
-const api = axios.create({ baseURL: 'http://13.232.27.217:8080/docs' })
+const api = axios.create({ baseURL: 'http://13.232.27.217:8080' })
 
 export const getProjects = () =>
   api.get('/projects').then(r => r.data.projects)
