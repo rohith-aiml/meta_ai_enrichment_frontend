@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 // Base URL pointing to the FastAPI backend
-const api = axios.create({ baseURL: '/api' })
+const api = axios.create({ baseURL: 'https://bovinely-peopleless-casie.ngrok-free.dev' })
 
 export const getProjects = () =>
   api.get('/projects').then(r => r.data.projects)
