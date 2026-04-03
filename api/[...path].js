@@ -1,41 +1,48 @@
 /**
  * Vercel Serverless Proxy
  *
- * Catches every request to /api/* and forwards it to the EC2 backend over HTTP.
- *
- * Flow:
- *   Browser  →  https://yourapp.vercel.app/api/filter    (HTTPS — browser safe)
- *   Proxy    →  http://13.232.27.217:8080/filter          (HTTP  — server-to-server, no restriction)
+ * All /api/* requests are handled here server-side.
+ * Vercel (HTTPS) → this function → EC2 backend (HTTP)
+ * The browser never touches the HTTP URL — no mixed content.
  */
 
 const BACKEND = 'http://13.232.27.217:8080'
 
 export default async function handler(req, res) {
-  // Build the target URL:  /api/filter?x=1  →  http://13.232.27.217:8080/filter?x=1
-  const path = '/' + (req.query.path || []).join('/')
-  const qs   = new URLSearchParams(
-    Object.entries(req.query).filter(([k]) => k !== 'path')
-  ).toString()
-  const targetUrl = `${BACKEND}${path}${qs ? '?' + qs : ''}`
+  // req.query.path is an array from [...path] catch-all
+  // e.g. /api/filter → ['filter'],  /api/select_match → ['select_match']
+  const segments  = Array.isArray(req.query.path) ? req.query.path : [req.query.path].filter(Boolean)
+  const pathname  = '/' + segments.join('/')
 
-  // Forward method + body + relevant headers
+  // Re-attach any query params that aren't the path segments
+  const params = { ...req.query }
+  delete params.path
+  const qs = new URLSearchParams(params).toString()
+
+  const targetUrl = `${BACKEND}${pathname}${qs ? '?' + qs : ''}`
+
   const fetchOptions = {
     method:  req.method,
-    headers: {
-      'Content-Type': req.headers['content-type'] || 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
+    // do NOT follow redirects — surface them as errors instead
+    redirect: 'error',
   }
 
-  if (!['GET', 'HEAD'].includes(req.method)) {
+  if (!['GET', 'HEAD'].includes(req.method) && req.body) {
     fetchOptions.body = JSON.stringify(req.body)
   }
 
   try {
     const backendRes = await fetch(targetUrl, fetchOptions)
-    const data       = await backendRes.json()
+    const text = await backendRes.text()
+
+    // Try to parse as JSON; fall back to plain text
+    let data
+    try { data = JSON.parse(text) } catch { data = text }
 
     res.status(backendRes.status).json(data)
   } catch (err) {
+    console.error(`Proxy error → ${targetUrl}:`, err.message)
     res.status(502).json({ detail: `Proxy error: ${err.message}` })
   }
 }
