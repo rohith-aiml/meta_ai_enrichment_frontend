@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/[...path].mjs": {
+      "runtime": "edge"
+    }
+  },
   "rewrites": [
     {
       "source": "/((?!api/).*)",
