@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-// const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://rohith696m-ai-metaenrichment-backend.hf.space'
-const BACKEND_URL = 'http://127.0.0.1:8000'
+ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL
+//const BACKEND_URL = 'http://127.0.0.1:8000'
 
 const headers = {}
 if (import.meta.env.VITE_HF_TOKEN) {
