@@ -1,37 +1,172 @@
 import { useState, useEffect, useRef } from 'react'
 import FilterPanel from './components/FilterPanel'
 import Pagination from './components/Pagination'
-import { applyFilter, runEnrich, saveMatch, removeMatch, manualEnrich, removeManualEnrich, searchContents, advancedSearch, dubbedSearch, moderateImages } from './api/client'
+import { applyFilter, runEnrich, searchContents, advancedSearch, dubbedSearch, moderateImages } from './api/client'
+import { logout } from './Login'
+import {
+  hasRootFolder, pickRootFolder, getFolderInfo,
+  saveEnrichmentRow, removeEnrichmentRow,
+  saveManualRow, removeManualRow,
+  buildEnrichmentRow, buildManualRow,
+} from './localCsv'
+
+// ── Folder button with fixed-position tooltip (bypasses backdrop-filter clip) ──
+function FolderButton({ folderReady, folderRoot, folderPath, onClick }) {
+  const btnRef                = useRef(null)
+  const [hovered, setHovered] = useState(false)
+  const [tipPos,  setTipPos]  = useState({ top: 0, right: 0 })
+
+  const handleMouseEnter = () => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setTipPos({ top: r.bottom + 8, right: window.innerWidth - r.right })
+    }
+    setHovered(true)
+  }
+
+  const label = folderReady && folderRoot
+    ? `📁 ${folderRoot}`
+    : '📁 Pick folder'
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        className={`folder-btn${folderReady ? ' folder-btn--ready' : ''}`}
+        style={{ marginLeft: 'auto' }}
+        onClick={onClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {label}
+      </button>
+
+      {hovered && (
+        <div
+          className="folder-tooltip"
+          style={{ top: tipPos.top, right: tipPos.right }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          {folderReady && folderPath ? (
+            <>
+              <div className="folder-tooltip-row">
+                <span className="folder-tooltip-label">enrichment.csv</span>
+                <span className="folder-tooltip-path">{folderPath} / enrichment.csv</span>
+              </div>
+              <div className="folder-tooltip-row">
+                <span className="folder-tooltip-label">manual_enrichment.csv</span>
+                <span className="folder-tooltip-path">{folderPath} / manual_enrichment.csv</span>
+              </div>
+              <div className="folder-tooltip-hint">Click to change folder</div>
+            </>
+          ) : (
+            <span className="folder-tooltip-hint">Pick a folder to save CSV files locally</span>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── session persistence helpers ───────────────────────────────────────────────
+const SESSION_KEY = 'meta_enr_session'
+
+function loadSession() {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null') || {} }
+  catch { return {} }
+}
+
+function saveSession(patch) {
+  try {
+    const prev = loadSession()
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ ...prev, ...patch }))
+  } catch {}
+}
 
 export default function App() {
+  const _s = loadSession()
+
   // Filter results state
-  const [filterResult, setFilterResult]   = useState(null)  // { count, page, total_pages, contents }
-  const [filterLoading, setFilterLoading] = useState(false)
-  const [filterError, setFilterError]     = useState('')
+  const [filterResult, _setFilterResult]   = useState(_s.filterResult || null)
+  const [filterLoading, setFilterLoading]  = useState(false)
+  const [filterError, setFilterError]      = useState('')
+
+  // Wrap setFilterResult to also persist
+  const setFilterResult = (val) => {
+    const next = typeof val === 'function' ? val(filterResult) : val
+    _setFilterResult(next)
+    saveSession({ filterResult: next })
+  }
 
   // Enrich state
   const [enrichLoading, setEnrichLoading] = useState(false)
   const [enrichError, setEnrichError]     = useState('')
 
   // Keep the last filter body so we can re-use it for pagination clicks
-  const [lastFilter, setLastFilter]       = useState(null)
-  const [enrichActive, setEnrichActive]   = useState(false)
+  const [lastFilter, _setLastFilter]      = useState(_s.lastFilter || null)
+  const setLastFilter = (val) => {
+    const next = typeof val === 'function' ? val(lastFilter) : val
+    _setLastFilter(next)
+    saveSession({ lastFilter: next })
+  }
+
+  const [enrichActive, _setEnrichActive]  = useState(_s.enrichActive || false)
+  const setEnrichActive = (val) => {
+    _setEnrichActive(val)
+    saveSession({ enrichActive: val })
+  }
 
   // Cache enriched page results so navigating back doesn't re-fetch or re-enrich
   // { pageNum: filterResult } — cleared whenever a new filter is applied
-  const pageResultsCacheRef = useRef({})
+  const pageResultsCacheRef = useRef(_s.pageResultsCache || {})
 
   // Persist per-card UI state (selections, search results) across page navigation
   // { contentid: { selectedMatchId, manualSaved, advResults, advSelectedId, dubbedResults, dubbedSelectedId } }
-  const cardStateRef = useRef({})
+  const cardStateRef = useRef(_s.cardState || {})
 
   // Moderation results: { contentid → {tag, is_adult, label_detail, ...} }
   // Populated in the background after each filter/page load
-  const [moderationMap, setModerationMap] = useState({})
+  const [moderationMap, _setModerationMap] = useState(_s.moderationMap || {})
+  const setModerationMap = (val) => {
+    const next = typeof val === 'function' ? val(moderationMap) : val
+    _setModerationMap(next)
+    saveSession({ moderationMap: next })
+  }
 
   const getCardState    = (cid) => cardStateRef.current[cid] || {}
   const updateCardState = (cid, patch) => {
     cardStateRef.current[cid] = { ...cardStateRef.current[cid], ...patch }
+    saveSession({ cardState: cardStateRef.current })
+  }
+
+  // Local folder for CSV output
+  const [folderReady, setFolderReady]       = useState(false)
+  const [folderPath,  setFolderPath]        = useState('')  // full display path
+  const [folderRoot,  setFolderRoot]        = useState('')  // just the root folder name
+
+  const _refreshFolderState = async (projectId) => {
+    const info = await getFolderInfo(projectId || null)
+    setFolderReady(!!info)
+    if (info) {
+      setFolderRoot(info.rootName)
+      setFolderPath(info.fullPath)
+    }
+  }
+  useEffect(() => { _refreshFolderState(lastFilter?.project_id) }, [])
+
+  const handlePickFolder = async () => {
+    try {
+      await pickRootFolder()
+      const info = await getFolderInfo(lastFilter?.project_id || null)
+      if (info) {
+        setFolderReady(true)
+        setFolderRoot(info.rootName)
+        setFolderPath(info.fullPath)
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') alert(e.message)
+    }
   }
 
   // Search
@@ -64,6 +199,8 @@ export default function App() {
     pageResultsCacheRef.current = {}
     cardStateRef.current = {}
     setModerationMap({})
+    saveSession({ pageResultsCache: {}, cardState: {} })
+    if (folderReady) getFolderInfo(filterBody.project_id).then(info => { if (info) setFolderPath(info.fullPath) })
     try {
       const data = await applyFilter(filterBody)
       setFilterResult(data)
@@ -93,6 +230,7 @@ export default function App() {
       const data = await applyFilter(newFilter)
       setFilterResult(data)
       pageResultsCacheRef.current[newPage] = data   // cache raw page
+      saveSession({ pageResultsCache: pageResultsCacheRef.current })
       runModeration(data.contents)
 
       // Auto-enrich if already active (handleEnrich will overwrite cache with enriched data)
@@ -123,6 +261,7 @@ export default function App() {
         })
         const updated = { ...prev, contents: enrichedContents }
         pageResultsCacheRef.current[prev.page] = updated   // cache enriched page
+        saveSession({ pageResultsCache: pageResultsCacheRef.current })
         return updated
       })
     } catch (err) {
@@ -186,6 +325,22 @@ export default function App() {
       <header className="header">
         <h1>Meta Enrichment</h1>
         <span className="ai-badge">AI</span>
+        <FolderButton
+          folderReady={folderReady}
+          folderRoot={folderRoot}
+          folderPath={folderPath}
+          onClick={handlePickFolder}
+        />
+        <button
+          style={{
+            padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border)',
+            background: 'var(--surface2)', color: 'var(--muted)', fontSize: '0.8rem',
+            cursor: 'pointer',
+          }}
+          onClick={() => { logout(); window.location.reload() }}
+        >
+          Sign out
+        </button>
       </header>
 
       <main className="main-content">
@@ -249,11 +404,14 @@ export default function App() {
                 key={item.contentid}
                 item={item}
                 projectId={lastFilter.project_id}
+                filterDate={lastFilter.date}
                 enrichActive={enrichActive}
                 highlight={highlightId === item.contentid}
                 savedState={getCardState(item.contentid)}
                 onStateChange={(patch) => updateCardState(item.contentid, patch)}
                 moderation={moderationMap[item.contentid] || null}
+                folderReady={folderReady}
+                onNeedFolder={handlePickFolder}
               />
             ))}
 
@@ -293,84 +451,45 @@ export default function App() {
   )
 }
 
-// ── TMDB API keys (rotated on 429/401) ────────────────────────────────────────
-const _TMDB_KEYS = [
-  'a2f888b27315e62e471b2d587048f32e',
-  '8476a7ab80ad76f0936744df0430e67c',
-  '5622cafbfe8f8cfe358a29c53e19bba0',
-  'ae4bd1b6fce2a5648671bfc171d15ba0',
-  '257654f35e3dff105574f97fb4b97035',
-  '2f4038e83265214a0dcd6ec2eb3276f5',
-  '9e43f45f94705cc8e1d5a0400d19a7b7',
-  'af6887753365e14160254ac7f4345dd2',
-  '06f10fc8741a672af455421c239a1ffc',
-  'fb7bb23f03b6994dafc674c074d01761',
-  '09ad8ace66eec34302943272db0e8d2c',
-  '7bca32596da7d3ef9aa511c95aee829b',
-  '8f6d7a3e2e959ece2c1ea2c10adfa6b9',
-  '69c6b9362872f8b7d98effec5badddd6',
-  'ca357c71903c409f2ce08d61e75700a6',
-  '3d5965dd1fd2903e4ab6854c6003559f',
-];
+// ── TMDB helpers — all calls go through the backend proxy (keys stay server-side)
+// const _BACKEND = import.meta.env.VITE_BACKEND_URL || 'https://rohith696m-ai-metaenrichment-backend.hf.space'
+const _BACKEND = 'http://127.0.0.1:8000'
+const _BACKEND_HEADERS = { 'Content-Type': 'application/json' }
 
-// IMDB data: look up movie by IMDB id via TMDB /find, then fetch full details
-// Returns { genres, vote_count, vote_average, release_year, original_language, spoken_languages }
+async function _backendGet(path) {
+  const r = await fetch(`${_BACKEND}/${path}`, { headers: _BACKEND_HEADERS })
+  if (!r.ok) return null
+  return r.json()
+}
+
+// Resolve IMDB id → TMDB detail via backend proxy
 async function _fetchImdbData(imdbId) {
-  for (const key of _TMDB_KEYS) {
-    try {
-      const findRes = await fetch(
-        `https://api.themoviedb.org/3/find/${imdbId}?api_key=${key}&external_source=imdb_id`
-      );
-      if (findRes.status === 429 || findRes.status === 401) continue;
-      if (!findRes.ok) continue;
-      const findData = await findRes.json();
-      const movies = findData.movie_results || [];
-      if (!movies.length) return {};
-      const findPoster = movies[0].poster_path
-        ? `https://image.tmdb.org/t/p/w300${movies[0].poster_path}` : null;
-      const movieRes = await fetch(`https://api.themoviedb.org/3/movie/${movies[0].id}?api_key=${key}`);
-      if (!movieRes.ok) continue;
-      const d = await movieRes.json();
-      return {
-        genres:            (d.genres || []).map(g => g.name),
-        vote_count:        d.vote_count ?? null,
-        vote_average:      d.vote_average ?? null,
-        release_year:      d.release_date ? d.release_date.slice(0, 4) : null,
-        original_language: d.original_language || null,
-        spoken_languages:  (d.spoken_languages || []).map(l => l.english_name || l.name).filter(Boolean),
-        poster_url:        d.poster_path ? `https://image.tmdb.org/t/p/w300${d.poster_path}` : findPoster,
-      };
-    } catch { continue; }
+  const data = await _backendGet(`tmdb/find/${encodeURIComponent(imdbId)}`).catch(() => null)
+  if (!data?.result) return null
+  const r = data.result
+  return {
+    genres:            r.genres            || [],
+    vote_count:        r.vote_count        ?? null,
+    vote_average:      r.vote_average      ?? null,
+    release_year:      r.release_year      || null,
+    original_language: r.original_language || null,
+    spoken_languages:  r.spoken_languages  || [],
+    poster_url:        r.poster_url        || null,
+    media_type:        r.media_type        || 'movie',
+    tmdb_detail_id:    r.tmdb_id           || null,
   }
-  return null;
 }
 
-// t_genres: genres from TMDB movie endpoint using TMDB id
-async function _fetchTGenres(tmdbId) {
-  for (const key of _TMDB_KEYS) {
-    try {
-      const res = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${key}`);
-      if (res.status === 429 || res.status === 401) continue;
-      if (!res.ok) continue;
-      const data = await res.json();
-      return (data.genres || []).map(g => g.name);
-    } catch { continue; }
-  }
-  return null;
+// t_genres via backend proxy
+async function _fetchTGenres(tmdbId, mediaType = 'movie') {
+  const data = await _backendGet(`tmdb/${mediaType}/${tmdbId}/details`).catch(() => null)
+  return data?.genres || null
 }
 
-// t_keywords: keywords from TMDB movie keywords endpoint using TMDB id
-async function _fetchTKeywords(tmdbId) {
-  for (const key of _TMDB_KEYS) {
-    try {
-      const res = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}/keywords?api_key=${key}`);
-      if (res.status === 429 || res.status === 401) continue;
-      if (!res.ok) continue;
-      const data = await res.json();
-      return (data.keywords || []).map(k => k.name);
-    } catch { continue; }
-  }
-  return null;
+// t_keywords via backend proxy
+async function _fetchTKeywords(tmdbId, mediaType = 'movie') {
+  const data = await _backendGet(`tmdb/${mediaType}/${tmdbId}/keywords`).catch(() => null)
+  return data?.keywords || null
 }
 
 // Chip-style multi-value input
@@ -675,38 +794,41 @@ function SelectModal({ match, onConfirm, onCancel, loading }) {
 }
 
 // A single match tile inside the carousel
-function MatchCard({ match, projectId, contentId, isSelected, disableSelect, onSelect, onRemove }) {
+function MatchCard({ match, projectId, contentId, contentRow, isSelected, disableSelect, onSelect, onRemove, folderReady, onNeedFolder }) {
   const [loading, setLoading]     = useState(false);
   const [showModal, setShowModal] = useState(false);
 
   const handleConfirm = async (genre, keywords, overrides = {}) => {
+    if (!folderReady) { onNeedFolder(); return; }
     try {
       setLoading(true);
       const patchedMatch = {
         ...match,
-        imdb_rating:       overrides.rating           ?? match.imdb_rating,
-        release_date:      overrides.release_year     ? `${overrides.release_year}-01-01` : match.release_date,
+        imdb_rating:       overrides.rating            ?? match.imdb_rating,
+        release_date:      overrides.release_year      ? `${overrides.release_year}-01-01` : match.release_date,
         original_language: overrides.original_language ?? match.original_language,
       };
-      await saveMatch(projectId, contentId, patchedMatch, genre, keywords);
+      const row = buildEnrichmentRow(contentRow, patchedMatch, genre, keywords, overrides);
+      await saveEnrichmentRow(projectId, row);
       setShowModal(false);
       onSelect(match.id);
     } catch (err) {
       console.error(err);
-      alert("Failed to save match.");
+      alert("Failed to save match: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleRemove = async () => {
+    if (!folderReady) { onNeedFolder(); return; }
     try {
       setLoading(true);
-      await removeMatch(projectId, contentId);
+      await removeEnrichmentRow(projectId, contentId);
       onRemove();
     } catch (err) {
       console.error(err);
-      alert("Failed to remove match.");
+      alert("Failed to remove match: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -770,11 +892,11 @@ function MatchCard({ match, projectId, contentId, isSelected, disableSelect, onS
 }
 
 // Advanced-search result tile (same shape as MatchCard, IMDB data)
-function AdvSearchCard({ result, projectId, contentId, isSelected, disableSelect, onSelect, onRemove }) {
+function AdvSearchCard({ result, projectId, contentId, contentRow, isSelected, disableSelect, onSelect, onRemove, folderReady, onNeedFolder }) {
   const [loading, setLoading]     = useState(false);
   const [showModal, setShowModal] = useState(false);
 
-  // Adapt IMDB result to the match shape expected by SelectModal / saveMatch
+  // Adapt IMDB result to the match shape expected by SelectModal / buildEnrichmentRow
   const matchPayload = {
     id:                result.imdb_id,
     tmdb_id:           'not found',
@@ -791,6 +913,7 @@ function AdvSearchCard({ result, projectId, contentId, isSelected, disableSelect
   };
 
   const handleConfirm = async (genre, keywords, overrides = {}) => {
+    if (!folderReady) { onNeedFolder(); return; }
     try {
       setLoading(true);
       const patchedMatch = {
@@ -799,25 +922,27 @@ function AdvSearchCard({ result, projectId, contentId, isSelected, disableSelect
         release_date:      overrides.release_year      ? `${overrides.release_year}-01-01` : matchPayload.release_date,
         original_language: overrides.original_language ?? matchPayload.original_language,
       };
-      await saveMatch(projectId, contentId, patchedMatch, genre, keywords);
+      const row = buildEnrichmentRow(contentRow, patchedMatch, genre, keywords, overrides);
+      await saveEnrichmentRow(projectId, row);
       setShowModal(false);
       onSelect(result.imdb_id);
     } catch (err) {
       console.error(err);
-      alert('Failed to save match.');
+      alert('Failed to save match: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleRemove = async () => {
+    if (!folderReady) { onNeedFolder(); return; }
     try {
       setLoading(true);
-      await removeMatch(projectId, contentId);
+      await removeEnrichmentRow(projectId, contentId);
       onRemove();
     } catch (err) {
       console.error(err);
-      alert('Failed to remove match.');
+      alert('Failed to remove match: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -867,7 +992,7 @@ function AdvSearchCard({ result, projectId, contentId, isSelected, disableSelect
 }
 
 // Content preview card (filter list view + inline carousel)
-function ContentCard({ item, projectId, enrichActive, highlight, savedState = {}, onStateChange = () => {}, moderation = null }) {
+function ContentCard({ item, projectId, filterDate, enrichActive, highlight, savedState = {}, onStateChange = () => {}, moderation = null, folderReady, onNeedFolder }) {
   // Initialise from savedState so values survive page navigation
   const [selectedMatchId,   setSelectedMatchId_]   = useState(savedState.selectedMatchId   ?? null);
   const [manualSaved,       setManualSaved_]        = useState(savedState.manualSaved       ?? false);
@@ -914,26 +1039,29 @@ function ContentCard({ item, projectId, enrichActive, highlight, savedState = {}
   };
 
   const handleManualEnrich = async () => {
+    if (!folderReady) { onNeedFolder(); return; }
     try {
       setManualLoading(true);
-      await manualEnrich(projectId, item.contentid);
+      const row = buildManualRow(item);
+      await saveManualRow(projectId, row);
       setManualSaved(true);
     } catch (err) {
       console.error(err);
-      alert("Failed to save manual enrichment.");
+      alert("Failed to save manual enrichment: " + err.message);
     } finally {
       setManualLoading(false);
     }
   };
 
   const handleManualRemove = async () => {
+    if (!folderReady) { onNeedFolder(); return; }
     try {
       setManualLoading(true);
-      await removeManualEnrich(projectId, item.contentid);
+      await removeManualRow(projectId, item.contentid);
       setManualSaved(false);
     } catch (err) {
       console.error(err);
-      alert("Failed to remove manual enrichment.");
+      alert("Failed to remove manual enrichment: " + err.message);
     } finally {
       setManualLoading(false);
     }
@@ -1037,11 +1165,15 @@ function ContentCard({ item, projectId, enrichActive, highlight, savedState = {}
                   key={r.imdb_id}
                   result={r}
                   projectId={projectId}
+                  filterDate={filterDate}
                   contentId={item.contentid}
+                  contentRow={item}
                   isSelected={advSelectedId === r.imdb_id}
                   disableSelect={advSelectedId !== null && advSelectedId !== r.imdb_id}
                   onSelect={(id) => setAdvSelectedId(id)}
                   onRemove={() => setAdvSelectedId(null)}
+                  folderReady={folderReady}
+                  onNeedFolder={onNeedFolder}
                 />
               ))}
             </div>
@@ -1061,11 +1193,15 @@ function ContentCard({ item, projectId, enrichActive, highlight, savedState = {}
                   key={idx}
                   match={m}
                   projectId={projectId}
+                  filterDate={filterDate}
                   contentId={item.contentid}
+                  contentRow={item}
                   isSelected={dubbedSelectedId === m.id}
                   disableSelect={dubbedSelectedId !== null && dubbedSelectedId !== m.id}
                   onSelect={(id) => setDubbedSelectedId(id)}
                   onRemove={() => setDubbedSelectedId(null)}
+                  folderReady={folderReady}
+                  onNeedFolder={onNeedFolder}
                 />
               ))}
             </div>
@@ -1083,15 +1219,19 @@ function ContentCard({ item, projectId, enrichActive, highlight, savedState = {}
           ) : (
             <div className="carousel-track">
               {item.matches.map((m, idx) => (
-                <MatchCard 
-                  key={idx} 
-                  match={m} 
-                  projectId={projectId} 
-                  contentId={item.contentid} 
+                <MatchCard
+                  key={idx}
+                  match={m}
+                  projectId={projectId}
+                  filterDate={filterDate}
+                  contentId={item.contentid}
+                  contentRow={item}
                   isSelected={selectedMatchId === m.id}
                   disableSelect={selectedMatchId !== null && selectedMatchId !== m.id}
                   onSelect={(id) => setSelectedMatchId(id)}
                   onRemove={() => setSelectedMatchId(null)}
+                  folderReady={folderReady}
+                  onNeedFolder={onNeedFolder}
                 />
               ))}
             </div>

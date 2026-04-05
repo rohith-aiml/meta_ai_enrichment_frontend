@@ -1,9 +1,14 @@
 import axios from 'axios'
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL,
-  headers: { 'Authorization': `Bearer ${import.meta.env.VITE_HF_TOKEN}` },
-})
+// const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://rohith696m-ai-metaenrichment-backend.hf.space'
+const BACKEND_URL = 'http://127.0.0.1:8000'
+
+const headers = {}
+if (import.meta.env.VITE_HF_TOKEN) {
+  headers['Authorization'] = `Bearer ${import.meta.env.VITE_HF_TOKEN}`
+}
+
+const api = axios.create({ baseURL: BACKEND_URL, headers })
 
 export const getProjects = () =>
   api.get('/projects').then(r => r.data.projects)

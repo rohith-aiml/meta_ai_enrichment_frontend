@@ -60,6 +60,62 @@ body {
   letter-spacing: -0.5px;
 }
 
+/* ── Folder picker button ─────────────────────────────────────────────────── */
+.folder-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+.folder-btn:hover { border-color: var(--accent); color: var(--text); }
+.folder-btn--ready { border-color: var(--success); color: var(--success); }
+.folder-btn--ready:hover { border-color: var(--success); color: var(--success); }
+
+.folder-tooltip {
+  position: fixed;
+  min-width: 320px;
+  max-width: 520px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 9999;
+  box-shadow: 0 8px 32px #0009;
+}
+.folder-tooltip-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.folder-tooltip-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--success);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.folder-tooltip-path {
+  font-size: 0.78rem;
+  color: var(--text);
+  word-break: break-all;
+  font-family: 'Courier New', monospace;
+}
+.folder-tooltip-hint {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
 /* ── AI Badge ─────────────────────────────────────────────────────────────── */
 .ai-badge {
   font-size: 0.68rem;
