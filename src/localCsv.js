@@ -49,6 +49,7 @@ const CSV_HEADERS = [
   'contentid', 'contentname', 'contenttype', 'language', 'releaseyear',
   'source_1_rating', 'Manual_Genre', 'Manual_Keywords', 'Updated_release_year',
   'Original_Language', 'IMDB ID', 'TMDB ID', 'Partner_Genre', 'cast', 'Partner', 'Date',
+  'is_adult',
 ]
 
 // ── IndexedDB helpers ─────────────────────────────────────────────────────────
@@ -273,6 +274,7 @@ export function buildEnrichmentRow(contentRow, match, manualGenre, manualKeyword
     cast:                  String(contentRow.cast        || ''),
     Partner:               String(contentRow.partnername || ''),
     Date:                  new Date().toISOString().slice(0, 10),
+    is_adult:              overrides.is_adult != null ? (overrides.is_adult ? 'true' : 'false') : '',
   }
 }
 
