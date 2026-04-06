@@ -452,8 +452,7 @@ export default function App() {
 }
 
 // ── TMDB helpers — all calls go through the backend proxy (keys stay server-side)
-// const _BACKEND = import.meta.env.VITE_BACKEND_URL || 'https://rohith696m-ai-metaenrichment-backend.hf.space'
-const _BACKEND = 'http://127.0.0.1:8000'
+const _BACKEND = import.meta.env.VITE_BACKEND_URL || 'https://rohith696m-ai-metaenrichment-backend.hf.space'
 const _BACKEND_HEADERS = { 'Content-Type': 'application/json' }
 
 async function _backendGet(path) {
