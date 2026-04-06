@@ -227,8 +227,8 @@ export function buildEnrichmentRow(contentRow, match, manualGenre, manualKeyword
     language:              String(contentRow.language    || ''),
     releaseyear:           String(contentRow.releaseyear || '').replace(/\.0$/, ''),
     source_1_rating:       String(overrides.rating           ?? match.imdb_rating ?? ''),
-    Manual_Genre:          manualGenre || String(match.genres || ''),
-    Manual_Keywords:       manualKeywords || '',
+    Manual_Genre:          (manualGenre || String(match.genres || '')).toLowerCase(),
+    Manual_Keywords:       (manualKeywords || '').toLowerCase(),
     Updated_release_year:  overrides.release_year
                              || (match.release_date ? match.release_date.slice(0, 4) : ''),
     Original_Language:     overrides.original_language ?? match.original_language ?? '',
