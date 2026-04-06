@@ -487,11 +487,12 @@ async function _fetchImdbData(imdbId) {
   }
 }
 
-// TMDB genres — uses TMDB API via backend /tmdb/{type}/{id}/details
-async function _fetchTGenres(tmdbId, mediaType = 'movie') {
+// TMDB details (genres + is_adult) — uses TMDB API via backend /tmdb/{type}/{id}/details
+async function _fetchTDetails(tmdbId, mediaType = 'movie') {
   if (!tmdbId) return null
   const data = await _backendGet(`tmdb/${mediaType}/${tmdbId}/details`).catch(() => null)
-  return data?.genres || null
+  if (!data) return null
+  return { genres: data.genres || [], is_adult: data.is_adult ?? false }
 }
 
 // TMDB keywords — uses TMDB API via backend /tmdb/{type}/{id}/keywords
@@ -579,6 +580,7 @@ function SelectModal({ match, onConfirm, onCancel, loading }) {
 
   const [imdbData,    setImdbData]    = useState(null);  // { genres, vote_count, vote_average, release_year, original_language, spoken_languages }
   const [tGenres,     setTGenres]     = useState(null);
+  const [tIsAdult,    setTIsAdult]    = useState(null);
   const [tKeywords,   setTKeywords]   = useState(null);
   const [metaLoading, setMetaLoading] = useState(false);
   const [fetchDone,   setFetchDone]   = useState(false);
@@ -603,12 +605,13 @@ function SelectModal({ match, onConfirm, onCancel, loading }) {
     setMetaLoading(true);
 
     const p1 = imdbId ? _fetchImdbData(imdbId).catch(() => null) : Promise.resolve(null);
-    const p2 = tmdbId ? _fetchTGenres(tmdbId).catch(() => null)  : Promise.resolve(null);
+    const p2 = tmdbId ? _fetchTDetails(tmdbId).catch(() => null)  : Promise.resolve(null);
     const p3 = tmdbId ? _fetchTKeywords(tmdbId).catch(() => null) : Promise.resolve(null);
 
-    Promise.all([p1, p2, p3]).then(([id, tg, tk]) => {
+    Promise.all([p1, p2, p3]).then(([id, tdet, tk]) => {
       setImdbData(id);
-      setTGenres(tg);
+      setTGenres(tdet?.genres || null);
+      setTIsAdult(tdet?.is_adult ?? null);
       setTKeywords(tk);
       // Auto-fill editable fields from fetched IMDB data if still empty
       if (id?.vote_average != null) setEditRating(prev => prev || String(id.vote_average));
@@ -729,6 +732,7 @@ function SelectModal({ match, onConfirm, onCancel, loading }) {
             )}
             {fieldRow('Updated_release_year', match.release_date ? match.release_date.slice(0, 4) : null)}
             {fieldRow('Original_Language', match.original_language)}
+            {tIsAdult !== null && fieldRow('Is Adult', tIsAdult ? 'Yes' : 'No')}
             <div>
               <div style={sectionLabel}>t_genres</div>
               {tGenres?.length > 0 ? (
@@ -793,7 +797,7 @@ function SelectModal({ match, onConfirm, onCancel, loading }) {
         <div className="modal-footer" style={{ marginTop: 12 }}>
           <button className="modal-btn modal-btn--cancel" onClick={onCancel} disabled={loading}>Cancel</button>
           <button className="modal-btn modal-btn--confirm"
-            onClick={() => onConfirm(genreChips.join(', '), kwChips.join(', '), { rating: editRating, release_year: editYear, original_language: editLang })} disabled={loading}>
+            onClick={() => onConfirm(genreChips.join(', '), kwChips.join(', '), { rating: editRating, release_year: editYear, original_language: editLang, is_adult: tIsAdult })} disabled={loading}>
             {loading ? 'Saving…' : 'Save'}
           </button>
         </div>
