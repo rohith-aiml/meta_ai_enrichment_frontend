@@ -7,6 +7,41 @@
  *   <chosen_root>/<project_id>/<date>/manual_enrichment.csv
  */
 
+// ── ISO 639 code → full language name (lowercase) ────────────────────────────
+const _LANG_MAP = {
+  en: 'english',   hi: 'hindi',      ta: 'tamil',       te: 'telugu',
+  ml: 'malayalam', kn: 'kannada',    mr: 'marathi',     gu: 'gujarati',
+  pa: 'punjabi',   bn: 'bangla',     ur: 'urdu',        or: 'odia',
+  as: 'assamese',  ks: 'kashmiri',   sd: 'sindhi',      sa: 'sanskrit',
+  ne: 'nepali',    si: 'sinhala',    my: 'burmese',     th: 'thai',
+  ko: 'korean',    ja: 'japanese',   zh: 'chinese',     fr: 'french',
+  de: 'german',    es: 'spanish',    it: 'italian',     pt: 'portuguese',
+  ru: 'russian',   ar: 'arabic',     tr: 'turkish',     fa: 'persian',
+  id: 'indonesian',ms: 'malay',      vi: 'vietnamese',  tl: 'filipino',
+  bho: 'bhojpuri', mai: 'maithili',  raj: 'rajasthani', awa: 'awadhi',
+  doi: 'dogri',    sat: 'santali',   mni: 'manipuri',   kok: 'konkani',
+  bo: 'tibetan',   dz: 'dzongkha',   sw: 'swahili',     nl: 'dutch',
+  pl: 'polish',    ro: 'romanian',   hu: 'hungarian',   cs: 'czech',
+  el: 'greek',     he: 'hebrew',     fi: 'finnish',     sv: 'swedish',
+  no: 'norwegian', da: 'danish',     uk: 'ukrainian',   bg: 'bulgarian',
+  sr: 'serbian',   hr: 'croatian',   sk: 'slovak',      lt: 'lithuanian',
+  lv: 'latvian',   et: 'estonian',   sq: 'albanian',    mk: 'macedonian',
+  bs: 'bosnian',   sl: 'slovenian',  ka: 'georgian',    hy: 'armenian',
+  az: 'azerbaijani', kk: 'kazakh',   uz: 'uzbek',       tk: 'turkmen',
+  mn: 'mongolian', km: 'khmer',      lo: 'lao',         am: 'amharic',
+  so: 'somali',    ha: 'hausa',      yo: 'yoruba',      ig: 'igbo',
+  zu: 'zulu',      xh: 'xhosa',      af: 'afrikaans',   cy: 'welsh',
+  ga: 'irish',     eu: 'basque',     ca: 'catalan',     gl: 'galician',
+  is: 'icelandic', mt: 'maltese',    lb: 'luxembourgish',
+}
+
+/** Convert an ISO 639 code to a full lowercase language name. */
+function _langName(code) {
+  if (!code) return ''
+  const key = String(code).trim().toLowerCase()
+  return _LANG_MAP[key] || key   // fall back to the code itself if unknown
+}
+
 const IDB_NAME    = 'meta_enr_fs'
 const IDB_STORE   = 'handles'
 const IDB_KEY     = 'root_dir'
@@ -231,7 +266,7 @@ export function buildEnrichmentRow(contentRow, match, manualGenre, manualKeyword
     Manual_Keywords:       (manualKeywords || '').toLowerCase(),
     Updated_release_year:  overrides.release_year
                              || (match.release_date ? match.release_date.slice(0, 4) : ''),
-    Original_Language:     overrides.original_language ?? match.original_language ?? '',
+    Original_Language:     _langName(overrides.original_language ?? match.original_language ?? ''),
     'IMDB ID':             String(match.imdb_id  || ''),
     'TMDB ID':             tmdbId,
     Partner_Genre:         String(contentRow.genre       || ''),
