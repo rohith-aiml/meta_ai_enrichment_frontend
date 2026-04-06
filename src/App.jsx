@@ -451,42 +451,52 @@ export default function App() {
   )
 }
 
-// ── TMDB helpers — all calls go through the backend proxy (keys stay server-side)
+// ── backend proxy helpers (keys stay server-side) ─────────────────────────────
 const _BACKEND = import.meta.env.VITE_BACKEND_URL || 'https://rohith696m-ai-metaenrichment-backend.hf.space'
-const _BACKEND_HEADERS = { 'Content-Type': 'application/json' }
+
+function _backendHeaders() {
+  const h = {}
+  if (import.meta.env.VITE_HF_TOKEN) h['Authorization'] = `Bearer ${import.meta.env.VITE_HF_TOKEN}`
+  return h
+}
 
 async function _backendGet(path) {
-  const r = await fetch(`${_BACKEND}/${path}`, { headers: _BACKEND_HEADERS })
+  const r = await fetch(`${_BACKEND}/${path}`, { headers: _backendHeaders() })
   if (!r.ok) return null
   return r.json()
 }
 
-// Resolve IMDB id → TMDB detail via backend proxy
+// IMDB card — uses RapidAPI (imdb236) via backend /imdb/detail/{imdb_id}
 async function _fetchImdbData(imdbId) {
-  const data = await _backendGet(`tmdb/find/${encodeURIComponent(imdbId)}`).catch(() => null)
+  if (!imdbId) return null
+  const data = await _backendGet(`imdb/detail/${encodeURIComponent(imdbId)}`).catch(() => null)
   if (!data?.result) return null
   const r = data.result
   return {
-    genres:            r.genres            || [],
-    vote_count:        r.vote_count        ?? null,
-    vote_average:      r.vote_average      ?? null,
-    release_year:      r.release_year      || null,
+    genres:            Array.isArray(r.genres) ? r.genres : [],
+    vote_average:      r.imdb_rating ? parseFloat(r.imdb_rating) : null,
+    vote_count:        null,
+    release_year:      r.release_year || null,
     original_language: r.original_language || null,
-    spoken_languages:  r.spoken_languages  || [],
-    poster_url:        r.poster_url        || null,
-    media_type:        r.media_type        || 'movie',
-    tmdb_detail_id:    r.tmdb_id           || null,
+    spoken_languages:  [],
+    poster_url:        r.poster_url || null,
+    director:          r.director   || '',
+    cast:              r.cast       || '',
+    media_type:        'movie',
+    tmdb_detail_id:    null,
   }
 }
 
-// t_genres via backend proxy
+// TMDB genres — uses TMDB API via backend /tmdb/{type}/{id}/details
 async function _fetchTGenres(tmdbId, mediaType = 'movie') {
+  if (!tmdbId) return null
   const data = await _backendGet(`tmdb/${mediaType}/${tmdbId}/details`).catch(() => null)
   return data?.genres || null
 }
 
-// t_keywords via backend proxy
+// TMDB keywords — uses TMDB API via backend /tmdb/{type}/{id}/keywords
 async function _fetchTKeywords(tmdbId, mediaType = 'movie') {
+  if (!tmdbId) return null
   const data = await _backendGet(`tmdb/${mediaType}/${tmdbId}/keywords`).catch(() => null)
   return data?.keywords || null
 }
