@@ -475,10 +475,10 @@ async function _fetchImdbData(imdbId) {
   return {
     genres:            Array.isArray(r.genres) ? r.genres : [],
     vote_average:      r.imdb_rating ? parseFloat(r.imdb_rating) : null,
-    vote_count:        null,
+    vote_count:        r.vote_count != null ? Number(r.vote_count) : null,
     release_year:      r.release_year || null,
     original_language: r.original_language || null,
-    spoken_languages:  [],
+    spoken_languages:  Array.isArray(r.spoken_languages) ? r.spoken_languages : [],
     poster_url:        r.poster_url || null,
     director:          r.director   || '',
     cast:              r.cast       || '',
