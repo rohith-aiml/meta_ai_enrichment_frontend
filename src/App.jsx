@@ -252,16 +252,19 @@ export default function App() {
     try {
       const data = await runEnrich(enrichBody)
 
-      // Merge results into filterResult.contents and update the page cache
-      setFilterResult(prev => {
+      // Use _setFilterResult (raw React setter) so `prev` is always the true current
+      // state — NOT the stale closure value captured when this function was created.
+      // Without this, navigating to page 2 then enriching would apply results against
+      // page 1's content IDs, find no matches, and silently show nothing.
+      _setFilterResult(prev => {
         if (!prev || !data.results) return prev
         const enrichedContents = prev.contents.map(item => {
           const matchData = data.results.find(res => res.contentid === item.contentid)
           return matchData ? { ...item, matches: matchData.matches } : item
         })
         const updated = { ...prev, contents: enrichedContents }
-        pageResultsCacheRef.current[prev.page] = updated   // cache enriched page
-        saveSession({ pageResultsCache: pageResultsCacheRef.current })
+        pageResultsCacheRef.current[prev.page] = updated
+        saveSession({ filterResult: updated, pageResultsCache: pageResultsCacheRef.current })
         return updated
       })
     } catch (err) {
